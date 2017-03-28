@@ -1,5 +1,8 @@
+library(phyclust)
+library(PopGenome)
+
 ## number of simulations
-numsim <- 500
+numsim <- 5
 
 ###Pop params
 ##number of pops
@@ -11,9 +14,11 @@ Pop1 = 73*2
 ## sample size of Pop2.
 Pop2 = 20*2
 
+popNlist = paste(Pop1,Pop2,sep=" ")
+
 ###Loci params
 ##number of nuclear loci
-Nnloci = 10
+Nnloci = 1
 ## average number of base pairs for nuclear loci
 Len_nloci <- 400
 ## mutation rate for nuclear loci
@@ -27,16 +32,19 @@ Len_ctloci <- 400
 ctmutrate <- 7*10^(-9)
 
 ##number of SSR loci
-NSSRloci = 10
+#NSSRloci = 10
 ## mutation rate for nuclear loci
-SSRmutrate <- 7*10^(-6)
+#SSRmutrate <- 7*10^(-6)
 
 ## years per generation
 genlen <- 30
 ##Upper and lower bounds for effective pop size
-Ne_upper = 100
-Ne_lower = 30000
+Ne_upper = 300000
+Ne_lower = 10000
 
+theta_nloci = c()
+theta_ctloci = c()
+#theta_SSRloci = c()
 coalescent_theta = F
 
 #' Sample the theta value for MS's simulations
@@ -49,28 +57,41 @@ coalescent_theta = F
 #' @export
 sample_theta <- function(coalescent_theta){
   if (coalescent_theta == T){
-    theta_nloci = runif(1, theta_nloci_lower, theta_nloci_upper)
-    theta_ctloci = runif(1, theta_ctloci_lower, theta_ctloci_upper)
-    theta_SSRloci = runif(1, theta_SSRloci_lower, theta_SSRloci_upper)
+    theta_nloci <<- cbind(runif(numsim, theta_nloci_lower, theta_nloci_upper))
+    theta_ctloci <<- cbind(runif(numsim, theta_ctloci_lower, theta_ctloci_upper))
+#    theta_SSRloci <<- cbind(runif(numsim, theta_SSRloci_lower, theta_SSRloci_upper))
   }
   else {
-    Ne = runif(1, Ne_lower, Ne_upper)
-    theta_nloci = Ne*4*nmutrate*Len_nloci
-    theta_ctloci = Ne*ctmutrate*Len_ctloci
-    theta_SSRloci = tNe*4*SSRmutrate
+    Ne = cbind(runif(numsim, Ne_lower, Ne_upper))
+    theta_nloci <<- Ne*4*nmutrate*Len_nloci
+    theta_ctloci <<- Ne*ctmutrate*Len_ctloci
+#    theta_SSRloci <<- Ne*4*SSRmutrate
   }
 }
 
 ##number of models
 Nmodels=3
 
-model1 = "-ej %f 1 2"
+nc_modelstr=sprintf("-t tbs -I %d %s",Npop, popNlist)
 
-model2 = "-n 1 %f -n 2 %f -ej %f 1 2"
+ct_modelstr=sprintf("-t tbs -I %d %s",Npop,popNlist)
 
-model3 = "-m 1 2 %f -m 2 1 %f -ej %f 1 2"
+seq_model1 = "-ej tbs 1 2"
 
-model_opt = list(model1, model2, model3)
+seq_model2 = "-n 1 tbs -n 2 tbs -ej tbs 1 2"
+
+seq_model3 = "-m 1 2 tbs -m 2 1 tbs -ej tbs 1 2"
+
+seq_model_opt = list(seq_model1, seq_model2, seq_model3)
+
+#SSR_model1 = "-ej %f 1 2"
+#
+#SSR_model2 = "-n 1 %f -n 2 %f -ej %f 1 2"
+#
+#SSR_model3 = "-m 1 2 %f -m 2 1 %f -ej %f 1 2"
+#
+#SSR_model_opt = list(SSR_model1, SSR_model2, SSR_model3)
+
 
 ###TO DO: use a conditional to sample times in years or in Coalescent_times prior
 #coalDivTime <- DivTime/(genlen*4*Ne)
@@ -93,17 +114,34 @@ prior_list = list(prior1, prior2, prior3)
 sample_priors <- function(model_number){
   parameter_list = c()
   for (bound in seq(1, length(prior_list[[model_number]]), 2)){
-    prior <- runif(1,  prior_list[[model_number]][[bound]], prior_list[[model_number]][[(bound+1)]])
-    parameter_list <- c(parameter_list, prior)
-    return(parameter_list)
+    prior <- cbind(runif(numsim,  prior_list[[model_number]][[bound]], prior_list[[model_number]][[(bound+1)]]))
+    parameter_list<-cbind(parameter_list, prior)
   }
+  return(parameter_list)
 }
 
-for(model in Nmodels){
-#  for (simulation in 1:numsim) {
-    sample_priors(model)
-#  }
+for(model in 1:Nmodels){
+  tbs_values<-sample_priors(model)
+  sample_theta(coalescent_theta)
+  ct_tbs_values<-cbind(theta_ctloci,tbs_values)
+  nc_tbs_values<-cbind(theta_nloci,tbs_values)
+
+
+  nc_ms.txt<-lapply(model, function(nmodel){write(ms(nsam=Nsam, nreps=numsim, opts= paste(nc_modelstr, seq_model_opt[[model]]), tbs.matrix=nc_tbs_values),file="ncmodel_nmodel.txt")})
+  ct_ms.txt<-lapply(model, function(nmodel){write(ms(nsam=Nsam, nreps=numsim, opts= paste(ct_modelstr, seq_model_opt[[model]]), tbs.matrix=ct_tbs_values),file="ctmodel_nmodel.txt")})
+##to runs microsat data (TO DO)
+#  for(simulation in 1:numsim){
+#  simd_data <- sim_microsats(theta = 1,
+#                             n_ind = c(73,20),
+#                             n_loc = 10,
+#                             n_pop = 2,
+#                             ms_options = "-I 2 146 40 -n 1 tbs -n 2 tbs -ej tbs 1 2",
+#                             tbs_matrix = cbind(0.5,0.5,2.3))
+  #  }
 }
+
+#lapply(tbs_values[simulation,], function(tbs){seq_model_opt[[1]]})
+
 #    ## use the DivTime in years to calculte divergence time in colaescent units (required by ms)
 #
 #    ## ms's command
